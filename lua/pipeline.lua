@@ -73,22 +73,24 @@ local function show_loading_window()
     return { buf = buf, win = win, timer = timer }
 end
 
--- Main function to open the pipeline display
+-- Main function to open the pipeline display with streaming updates
 local function open_pipeline()
     -- Show loading window immediately
     local loading_window = show_loading_window()
+    local main_window = nil
     
-    git.get_all_actions(function(results, error_msg)
+    -- Stream updates as they come in
+    git.get_all_actions_streaming(function(results, error_msg)
         vim.schedule(function()
-            -- Close loading window
-            if loading_window.timer then
-                loading_window.timer:close()
-            end
-            if vim.api.nvim_win_is_valid(loading_window.win) then
-                vim.api.nvim_win_close(loading_window.win, true)
-            end
-            
             if error_msg then
+                -- Close loading window on error
+                if loading_window.timer then
+                    loading_window.timer:close()
+                end
+                if vim.api.nvim_win_is_valid(loading_window.win) then
+                    vim.api.nvim_win_close(loading_window.win, true)
+                end
+                
                 vim.notify("Pipeline Error: " .. error_msg, vim.log.levels.ERROR)
                 return
             end
@@ -96,19 +98,52 @@ local function open_pipeline()
             local active_actions = results.active or {}
             local recent_actions = results.recent or {}
             
-            -- Generate display content
-            local win_width = math.min(vim.o.columns - 4, 140)
-            local win_height = math.min(vim.o.lines - 4, 40)
+            -- If main window doesn't exist yet, create it
+            if not main_window then
+                -- Close loading window
+                if loading_window.timer then
+                    loading_window.timer:close()
+                end
+                if vim.api.nvim_win_is_valid(loading_window.win) then
+                    vim.api.nvim_win_close(loading_window.win, true)
+                end
+                
+                -- Create main display window
+                local win_width = math.min(vim.o.columns - 4, 140)
+                local win_height = math.min(vim.o.lines - 4, 40)
+                
+                local content = display.generate_display_content(
+                    active_actions, 
+                    recent_actions, 
+                    win_width, 
+                    win_height
+                )
+                
+                main_window = display.create_floating_window(content)
+                
+            else
+                -- Update existing window with new content
+                display.update_window_content(main_window, active_actions, recent_actions)
+            end
             
-            local content = display.generate_display_content(
-                active_actions, 
-                recent_actions, 
-                win_width, 
-                win_height
-            )
+            -- Update window title to show progress
+            if results.loading then
+                display.update_window_title(main_window, " GitHub Actions Pipeline - Loading... ")
+            else
+                display.update_window_title(main_window, " GitHub Actions Pipeline ")
+            end
+        end)
+    end, function(final_results, final_error)
+        vim.schedule(function()
+            -- Clean up any final loading state
+            if main_window then
+                display.update_window_title(main_window, " GitHub Actions Pipeline ")
+            end
             
-            -- Create and show floating window
-            display.create_floating_window(content)
+            if final_error then
+                vim.notify("Pipeline Error: " .. final_error, vim.log.levels.ERROR)
+                return
+            end
         end)
     end)
 end

@@ -344,4 +344,58 @@ function M.create_floating_window(content)
     return { buf = buf, win = win, box_positions = box_positions }
 end
 
+-- Update existing window with new content
+function M.update_window_content(window_info, active_actions, recent_actions)
+    if not window_info or not window_info.buf or not vim.api.nvim_buf_is_valid(window_info.buf) then
+        return
+    end
+    
+    local win_width = vim.api.nvim_win_get_width(window_info.win)
+    local win_height = vim.api.nvim_win_get_height(window_info.win)
+    
+    local content = M.generate_display_content(
+        active_actions, 
+        recent_actions, 
+        win_width, 
+        win_height
+    )
+    
+    -- Update buffer with new content
+    vim.api.nvim_buf_set_option(window_info.buf, 'modifiable', true)
+    vim.api.nvim_buf_set_lines(window_info.buf, 0, -1, false, content.lines)
+    vim.api.nvim_buf_set_option(window_info.buf, 'modifiable', false)
+    
+    -- Re-apply highlights
+    for _, hl in ipairs(content.highlights) do
+        vim.api.nvim_buf_add_highlight(window_info.buf, -1, hl.hl_group, hl.line, hl.col_start, hl.col_end)
+    end
+    
+    -- Reset cursor to first box if available
+    if content.box_positions and #content.box_positions > 0 then
+        vim.api.nvim_win_set_cursor(window_info.win, {content.box_positions[1].center_line, 0})
+    end
+end
+
+-- Update window title
+function M.update_window_title(window_info, title)
+    if not window_info or not window_info.win or not vim.api.nvim_win_is_valid(window_info.win) then
+        return
+    end
+    
+    local config = vim.api.nvim_win_get_config(window_info.win)
+    if config.title ~= title then
+        vim.api.nvim_win_set_config(window_info.win, {
+            relative = 'editor',
+            width = config.width,
+            height = config.height,
+            row = config.row,
+            col = config.col,
+            style = 'minimal',
+            border = 'rounded',
+            title = title,
+            title_pos = 'center',
+        })
+    end
+end
+
 return M

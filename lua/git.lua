@@ -375,7 +375,62 @@ function M.get_recent_actions(callback, limit)
     end)
 end
 
--- Fetch both active and recent actions
+-- Fetch both active and recent actions with streaming updates
+function M.get_all_actions_streaming(update_callback, final_callback)
+    local all_active_actions = {}
+    local all_recent_actions = {}
+    local active_complete = false
+    local recent_complete = false
+    local errors = {}
+
+    -- Streaming update function
+    local function update_results()
+        update_callback({
+            active = all_active_actions,
+            recent = all_recent_actions,
+            loading = not (active_complete and recent_complete)
+        }, nil)
+    end
+
+    local function check_final_completion()
+        if active_complete and recent_complete then
+            if #errors > 0 then
+                final_callback(nil, table.concat(errors, "; "))
+            else
+                final_callback({
+                    active = all_active_actions,
+                    recent = all_recent_actions
+                }, nil)
+            end
+        end
+    end
+
+    -- Get active actions with streaming updates
+    M.get_active_actions(function(actions, err)
+        if err then
+            table.insert(errors, "Active actions: " .. err)
+        else
+            all_active_actions = actions or {}
+            update_results()  -- Stream update immediately
+        end
+        active_complete = true
+        check_final_completion()
+    end)
+
+    -- Get recent actions with streaming updates
+    M.get_recent_actions(function(actions, err)
+        if err then
+            table.insert(errors, "Recent actions: " .. err)
+        else
+            all_recent_actions = actions or {}
+            update_results()  -- Stream update immediately
+        end
+        recent_complete = true
+        check_final_completion()
+    end)
+end
+
+-- Fetch both active and recent actions (original function)
 function M.get_all_actions(callback)
     local results = { active = nil, recent = nil }
     local errors = {}
