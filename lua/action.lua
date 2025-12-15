@@ -66,12 +66,12 @@ end
 -- Get status color for highlights
 function Action:get_status_color()
     local colors = {
-        in_progress = "DiagnosticWarn",  -- Yellow
-        queued = "DiagnosticHint",       -- Gray
-        success = "DiagnosticOk",        -- Green
-        failure = "DiagnosticError",     -- Red
-        cancelled = "Comment",           -- Gray
-        skipped = "Comment"              -- Gray
+        in_progress = "PipelineInProgress",  -- Yellow
+        queued = "PipelineCompletedBorder",   -- Gray
+        success = "PipelineSuccess",          -- Green
+        failure = "PipelineFailure",          -- Red
+        cancelled = "PipelineCancelled",       -- Gray
+        skipped = "PipelineCancelled"          -- Gray
     }
 
     local key = self.status == "completed" and self.conclusion or self.status

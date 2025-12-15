@@ -11,16 +11,16 @@ local config = {
 
 -- Create highlight groups
 local function setup_highlights()
-    -- Use theme diagnostic colors for better consistency
-    vim.api.nvim_set_hl(0, "PipelineActiveBorder", {link = "DiagnosticWarn"}) -- Yellow
-    vim.api.nvim_set_hl(0, "PipelineCompletedBorder", {link = "Comment"}) -- Gray
-    vim.api.nvim_set_hl(0, "PipelineSuccess", {link = "DiagnosticOk"}) -- Green
-    vim.api.nvim_set_hl(0, "PipelineFailure", {link = "DiagnosticError"}) -- Red
-    vim.api.nvim_set_hl(0, "PipelineCancelled", {link = "Comment"}) -- Light gray
-    vim.api.nvim_set_hl(0, "PipelineInProgress", {link = "DiagnosticWarn"}) -- Yellow
+    -- Use explicit colors instead of theme
+    vim.api.nvim_set_hl(0, "PipelineActiveBorder", {fg = "#f0c674"}) -- Yellow
+    vim.api.nvim_set_hl(0, "PipelineCompletedBorder", {fg = "#808080"}) -- Gray
+    vim.api.nvim_set_hl(0, "PipelineSuccess", {fg = "#00ff00"}) -- Green
+    vim.api.nvim_set_hl(0, "PipelineFailure", {fg = "#ff0000"}) -- Red
+    vim.api.nvim_set_hl(0, "PipelineCancelled", {fg = "#808080"}) -- Gray
+    vim.api.nvim_set_hl(0, "PipelineInProgress", {fg = "#f0c674"}) -- Yellow
     vim.api.nvim_set_hl(0, "PipelineNormal", {link = "Normal"}) -- Use theme background
     vim.api.nvim_set_hl(0, "PipelineFloat", {link = "NormalFloat"}) -- Use theme float background
-    vim.api.nvim_set_hl(0, "PipelineSelected", {bg = "#2c313c", reverse = true}) -- Selected box with reverse highlighting
+    vim.api.nvim_set_hl(0, "PipelineSelected", {fg = "#ffffff", bold = true}) -- White highlighted border
 end
 
 -- Create a box border with corners and edges
@@ -313,10 +313,33 @@ function M.create_floating_window(content)
         -- Clear all previous selections
         vim.api.nvim_buf_clear_namespace(buf, -1, 0, -1)
         
-        -- Highlight selected box only within box boundaries
+        -- Highlight only the border of selected box
         local box_pos = box_positions[box_index]
+        
+        -- Recalculate column positions based on current window width
+        local current_center_offset = math.max(0, math.floor((win_width - config.box_width) / 2))
+        
         for line = box_pos.start_line, box_pos.end_line do
-            vim.api.nvim_buf_add_highlight(buf, -1, "PipelineSelected", line - 1, box_pos.col_start, box_pos.col_end)
+            -- Get the actual line content to find border positions
+            local line_content = vim.api.nvim_buf_get_lines(buf, line - 1, line, false)[1] or ""
+            
+            -- Find left border position
+            local left_border_pos = string.find(line_content, "│", current_center_offset, true)
+            if left_border_pos then
+                vim.api.nvim_buf_add_highlight(buf, -1, "PipelineSelected", line - 1, left_border_pos - 1, left_border_pos)
+            end
+            
+            -- Find right border position
+            local right_border_pos = string.find(line_content, "│", left_border_pos and left_border_pos + 1 or current_center_offset, true)
+            if right_border_pos then
+                vim.api.nvim_buf_add_highlight(buf, -1, "PipelineSelected", line - 1, right_border_pos - 1, right_border_pos)
+            end
+            
+            -- Handle top and bottom borders (corners and lines)
+            if line == box_pos.start_line or line == box_pos.end_line then
+                -- Highlight the entire border line for top/bottom
+                vim.api.nvim_buf_add_highlight(buf, -1, "PipelineSelected", line - 1, current_center_offset, current_center_offset + config.box_width)
+            end
         end
         
         -- Scroll window to keep selected box visible
