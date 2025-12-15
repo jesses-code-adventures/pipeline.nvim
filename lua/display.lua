@@ -263,6 +263,9 @@ function M.create_floating_window(content)
 
     local row = math.floor((vim.o.lines - win_height) / 2)
     local col = math.floor((vim.o.columns - win_width) / 2)
+    
+    -- Store original cursor setting globally
+    vim.g.pipeline_original_guicursor = vim.opt.guicursor:get()
 
     -- Create buffer
     local buf = vim.api.nvim_create_buf(false, true)
@@ -297,7 +300,7 @@ function M.create_floating_window(content)
     vim.api.nvim_win_set_option(win, 'cursorline', false)
     vim.api.nvim_win_set_option(win, 'wrap', false)
     vim.api.nvim_win_set_option(win, 'cursorcolumn', false)
-    vim.api.nvim_win_set_option(win, 'guicursor', 'a:Normal/PipelineNormal')
+    vim.opt.guicursor = 'a:Normal/PipelineNormal'
 
     -- Box navigation state
     local current_box = 1
@@ -414,14 +417,35 @@ function M.create_floating_window(content)
         highlight_box(1)
     end
 
-    -- Set up autocmd to restore cursor when window is closed
+    -- Set up multiple autocmds to ensure cursor restoration
     local augroup = vim.api.nvim_create_augroup("PipelineWindow", { clear = false })
-    vim.api.nvim_create_autocmd("WinClosed", {
+    
+    local function restore_cursor()
+        -- Restore original cursor setting from global variable
+        if vim.g.pipeline_original_guicursor and #vim.g.pipeline_original_guicursor > 0 then
+            vim.opt.guicursor = vim.g.pipeline_original_guicursor
+        else
+            vim.opt.guicursor = ''
+        end
+        -- Clear global variable
+        vim.g.pipeline_original_guicursor = nil
+        -- Clean up augroup
+        pcall(vim.api.nvim_del_augroup_by_id, augroup)
+    end
+    
+    -- Multiple triggers to ensure restoration
+    vim.api.nvim_create_autocmd({"WinClosed", "WinLeave", "BufLeave"}, {
         group = augroup,
-        pattern = tostring(win),
+        buffer = buf,
+        callback = restore_cursor,
+        once = true
+    })
+    
+    -- Additional safety net
+    vim.api.nvim_create_autocmd("VimLeavePre", {
+        group = augroup,
         callback = function()
-            vim.opt.guicursor = ''  -- Reset to default
-            vim.api.nvim_del_augroup_by_id(augroup)
+            vim.g.pipeline_original_guicursor = nil
         end,
         once = true
     })
