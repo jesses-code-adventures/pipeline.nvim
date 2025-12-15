@@ -158,11 +158,10 @@ local function parse_actions_json(json_str)
 end
 
 -- Get repositories ordered by recent activity (pushed_at)
-function M.get_recent_repos(callback)
-    -- Use GitHub API to get all repos the user has access to
+function M.get_recent_repos(callback, config)
+    -- Use GitHub API to get repos the user has access to, limited to avoid freezing
     execute_async("gh", {
-        "api", "/user/repos?per_page=100&type=all",
-        "--paginate"
+        "api", "/user/repos?per_page=50&type=all&sort=pushed&direction=desc"
     }, function(code, stdout, stderr)
         if code ~= 0 then
             callback(nil, "Failed to fetch repositories: " .. (stderr or "unknown error"))
@@ -177,28 +176,41 @@ function M.get_recent_repos(callback)
 
         -- Transform to expected format
         local transformed_repos = {}
+        local excluded_orgs = config and config.exclude_organisations or {}
+
         for _, repo in ipairs(repos) do
-            table.insert(transformed_repos, {
-                name = repo.name,
-                owner = {login = repo.owner.login},
-                pushedAt = repo.pushed_at,
-                updatedAt = repo.updated_at,
-                isPrivate = repo.private,
-                full_name = repo.full_name
-            })
+            -- Skip repos from excluded organizations
+            local should_exclude = false
+            for _, excluded_org in ipairs(excluded_orgs) do
+                if repo.owner.login == excluded_org then
+                    should_exclude = true
+                    break
+                end
+            end
+
+            if not should_exclude then
+                table.insert(transformed_repos, {
+                    name = repo.name,
+                    owner = {login = repo.owner.login},
+                    pushedAt = repo.pushed_at,
+                    updatedAt = repo.updated_at,
+                    isPrivate = repo.private,
+                    full_name = repo.full_name
+                })
+            end
         end
 
-        -- Sort by most recent activity
-        table.sort(transformed_repos, function(a, b)
-            return (a.pushedAt or "") > (b.pushedAt or "")
-        end)
+        -- Already sorted by API (pushed desc), but ensure we have our expected sort_date field
+        for _, repo in ipairs(transformed_repos) do
+            repo.sort_date = repo.pushedAt or repo.updatedAt or ""
+        end
 
         callback(transformed_repos, nil)
     end)
 end
 
 -- Fetch active GitHub Actions (in_progress and queued) from all accessible repos
-function M.get_active_actions(callback)
+function M.get_active_actions(callback, config)
     -- Get repositories ordered by recent activity, then fetch active actions
     M.get_recent_repos(function(repos, err)
         if err then
@@ -206,32 +218,41 @@ function M.get_active_actions(callback)
             return
         end
 
-        -- Fetch active actions from repos (limit to first 30 repos to avoid rate limits)
+        -- Fetch active actions from repos with controlled concurrency (10 concurrent max)
         local all_active_actions = {}
+        local max_repos = math.min(#repos, 20)
         local completed_repos = 0
-        local max_repos = math.min(#repos, 30)
-        
+        local active_requests = 0
+        local max_concurrent = 10
+
         if max_repos == 0 then
             callback({}, nil)
             return
         end
 
-        -- Check both in_progress and queued status for each repo
-        local function fetch_repo_active_actions(repo_name, repo_callback)
+        local function process_repo(index)
+            if index > max_repos then
+                return
+            end
+
+            active_requests = active_requests + 1
+            local repo = repos[index]
+
+            -- Check both in_progress and queued status for this repo
             execute_async("gh", {
                 "run", "list",
-                "--repo", repo_name,
+                "--repo", repo.full_name,
                 "--status", "in_progress",
                 "--json", "databaseId,name,status,conclusion,createdAt,updatedAt,headBranch,headSha,url,workflowName",
-                "--limit", "3"
+                "--limit", "2"
             }, function(code1, stdout1, stderr1)
-                local in_progress_actions = {}
+                local repo_actions = {}
                 if code1 == 0 then
                     local actions, err1 = parse_actions_json(stdout1)
                     if not err1 and actions then
                         for _, action in ipairs(actions) do
-                            action.repository = repo_name
-                            table.insert(in_progress_actions, action)
+                            action.repository = repo.full_name
+                            table.insert(repo_actions, action)
                         end
                     end
                 end
@@ -239,58 +260,52 @@ function M.get_active_actions(callback)
                 -- Also check queued actions
                 execute_async("gh", {
                     "run", "list",
-                    "--repo", repo_name,
+                    "--repo", repo.full_name,
                     "--status", "queued",
                     "--json", "databaseId,name,status,conclusion,createdAt,updatedAt,headBranch,headSha,url,workflowName",
-                    "--limit", "3"
+                    "--limit", "2"
                 }, function(code2, stdout2, stderr2)
-                    local queued_actions = {}
                     if code2 == 0 then
                         local actions, err2 = parse_actions_json(stdout2)
                         if not err2 and actions then
                             for _, action in ipairs(actions) do
-                                action.repository = repo_name
-                                table.insert(queued_actions, action)
+                                action.repository = repo.full_name
+                                table.insert(repo_actions, action)
                             end
                         end
                     end
 
-                    -- Combine both types
-                    local repo_actions = {}
-                    for _, action in ipairs(in_progress_actions) do
-                        table.insert(repo_actions, action)
-                    end
-                    for _, action in ipairs(queued_actions) do
-                        table.insert(repo_actions, action)
+                    -- Add this repo's actions to the total
+                    for _, action in ipairs(repo_actions) do
+                        table.insert(all_active_actions, action)
                     end
 
-                    repo_callback(repo_actions)
+                    -- Mark this repo as completed
+                    completed_repos = completed_repos + 1
+                    active_requests = active_requests - 1
+
+                    -- Start next repo if we haven't reached the limit
+                    if index + max_concurrent <= max_repos then
+                        process_repo(index + max_concurrent)
+                    end
+
+                    -- Check if all repos are completed
+                    if completed_repos == max_repos then
+                        callback(all_active_actions, nil)
+                    end
                 end)
             end)
         end
 
-        -- Process repos concurrently
-        for i = 1, max_repos do
-            local repo = repos[i]
-            fetch_repo_active_actions(repo.full_name, function(repo_actions)
-                completed_repos = completed_repos + 1
-                
-                -- Add this repo's actions to the total
-                for _, action in ipairs(repo_actions) do
-                    table.insert(all_active_actions, action)
-                end
-                
-                -- Check if we've completed all repos
-                if completed_repos == max_repos then
-                    callback(all_active_actions, nil)
-                end
-            end)
+        -- Start initial batch of concurrent requests
+        for i = 1, math.min(max_concurrent, max_repos) do
+            process_repo(i)
         end
-    end)
+    end, config)
 end
 
 -- Fetch recent GitHub Actions (completed, failed, etc.) from all accessible repos
-function M.get_recent_actions(callback, limit)
+function M.get_recent_actions(callback, limit, config)
     limit = limit or 40
 
     -- Get repositories ordered by recent activity, then fetch recent actions
@@ -300,27 +315,33 @@ function M.get_recent_actions(callback, limit)
             return
         end
 
-        -- Fetch recent actions from repos (limit to first 30 repos for recent actions)
+        -- Fetch recent actions from repos with controlled concurrency (10 concurrent max)
         local all_recent_actions = {}
+        local max_repos = math.min(#repos, 20)
         local completed_repos = 0
-        local max_repos = math.min(#repos, 30)
-        
+        local active_requests = 0
+        local max_concurrent = 10
+
         if max_repos == 0 then
             callback({}, nil)
             return
         end
 
-        -- Fetch recent actions from each repo (last year)
-        for i = 1, max_repos do
-            local repo = repos[i]
+        local function process_repo(index)
+            if index > max_repos then
+                return
+            end
+
+            active_requests = active_requests + 1
+            local repo = repos[index]
+
+            -- Fetch recent actions from this repo
             execute_async("gh", {
                 "run", "list",
                 "--repo", repo.full_name,
                 "--json", "databaseId,name,status,conclusion,createdAt,updatedAt,headBranch,headSha,url,workflowName",
-                "--limit", "20"
+                "--limit", "10"
             }, function(code, stdout, stderr)
-                completed_repos = completed_repos + 1
-                
                 if code == 0 then
                     local actions, parse_err = parse_actions_json(stdout)
                     if not parse_err and actions then
@@ -334,29 +355,43 @@ function M.get_recent_actions(callback, limit)
                         end
                     end
                 end
-                
-                -- Check if we've completed all repos
+
+                -- Mark this repo as completed
+                completed_repos = completed_repos + 1
+                active_requests = active_requests - 1
+
+                -- Start next repo if we haven't reached the limit
+                if index + max_concurrent <= max_repos then
+                    process_repo(index + max_concurrent)
+                end
+
+                -- Check if all repos are completed
                 if completed_repos == max_repos then
                     -- Sort all actions by creation time (most recent first)
                     table.sort(all_recent_actions, function(a, b)
                         return (a.start_time or "") > (b.start_time or "")
                     end)
-                    
+
                     -- Limit total results
                     local limited_actions = {}
                     for i = 1, math.min(limit, #all_recent_actions) do
                         table.insert(limited_actions, all_recent_actions[i])
                     end
-                    
+
                     callback(limited_actions, nil)
                 end
             end)
         end
-    end)
+
+        -- Start initial batch of concurrent requests
+        for i = 1, math.min(max_concurrent, max_repos) do
+            process_repo(i)
+        end
+    end, config)
 end
 
 -- Fetch both active and recent actions with streaming updates
-function M.get_all_actions_streaming(update_callback, final_callback)
+function M.get_all_actions_streaming(update_callback, final_callback, config)
     local all_active_actions = {}
     local all_recent_actions = {}
     local active_complete = false
@@ -395,7 +430,7 @@ function M.get_all_actions_streaming(update_callback, final_callback)
         end
         active_complete = true
         check_final_completion()
-    end)
+    end, config)
 
     -- Get recent actions with streaming updates
     M.get_recent_actions(function(actions, err)
@@ -407,11 +442,11 @@ function M.get_all_actions_streaming(update_callback, final_callback)
         end
         recent_complete = true
         check_final_completion()
-    end)
+    end, 40, config)
 end
 
 -- Fetch both active and recent actions (original function)
-function M.get_all_actions(callback)
+function M.get_all_actions(callback, config)
     local results = { active = nil, recent = nil }
     local errors = {}
     local completed_calls = 0
@@ -435,7 +470,7 @@ function M.get_all_actions(callback)
             results.active = actions
         end
         check_completion()
-    end)
+    end, config)
 
     -- Get recent actions
     M.get_recent_actions(function(actions, err)
@@ -445,7 +480,7 @@ function M.get_all_actions(callback)
             results.recent = actions
         end
         check_completion()
-    end)
+    end, 40, config)
 end
 
 return M

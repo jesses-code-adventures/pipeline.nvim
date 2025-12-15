@@ -78,6 +78,22 @@ function Action:get_status_color()
     return colors[key] or "Normal"
 end
 
+-- Get status as text
+function Action:get_status_text()
+    local texts = {
+        in_progress = "In Progress",
+        queued = "Queued",
+        completed = "Completed",
+        success = "Success",
+        failure = "Failure",
+        cancelled = "Cancelled",
+        skipped = "Skipped"
+    }
+
+    local key = self.status == "completed" and self.conclusion or self.status
+    return texts[key] or "Unknown"
+end
+
 -- Get formatted display name
 function Action:get_display_name()
     return self.workflow_name ~= "" and self.workflow_name or self.name

@@ -11,47 +11,123 @@ A Neovim plugin to display GitHub Actions in a beautiful floating window with re
 - 📋 **Recent History**: Shows previously completed actions in chronological order
 - 🎨 **Status Colors**: Color-coded status indicators (success, failure, cancelled)
 - 🚀 **Async Loading**: Non-blocking data fetching using vim.loop
+- 🏢 **Organization Filtering**: Exclude repositories from specific organizations
 
 ## Requirements
 
-- Neovim 0.8+
-- [GitHub CLI (gh)](https://cli.github.com/) installed and authenticated
-- A GitHub repository with Actions enabled
+- **Neovim 0.8+**: Required for the floating window and async features
+- **[GitHub CLI (gh)](https://cli.github.com/)**: Must be installed and authenticated
+  ```bash
+  # Install
+  # macOS
+  brew install gh
+
+  # Ubuntu/Debian
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+  sudo apt update
+  sudo apt install gh
+
+  # Authenticate
+  gh auth login
+  ```
+- **GitHub repository**: With Actions enabled (optional for viewing repos you have access to)
 
 ## Installation
 
-Using [lazy.nvim](https://github.com/folke/lazy.nvim):
+### Using vim.packadd (built-in)
+
+1. Clone the repository to your Neovim pack directory:
+   ```bash
+   git clone https://github.com/your-username/nvim-pipeline.git ~/.local/share/nvim/site/pack/plugins/start/nvim-pipeline
+   ```
+
+2. Add to your `init.lua`:
+   ```lua
+   -- Load the plugin
+   vim.cmd('packadd nvim-pipeline')
+
+   -- Setup with optional configuration
+   require('pipeline').setup({
+     exclude_organisations = {"org1", "org2"} -- Optional: exclude specific organizations
+   })
+   ```
+
+### Using lazy.nvim
 
 ```lua
 {
-  "your-username/nvim-pipeline", -- Replace with your actual repo path
+  "your-username/nvim-pipeline",
   config = function()
-    require('pipeline').setup()
+    require('pipeline').setup({
+      exclude_organisations = {"org1", "org2"} -- Optional: exclude specific organizations
+    })
   end,
 }
 ```
 
-Using [packer.nvim](https://github.com/wbthomason/packer.nvim):
+### Using packer.nvim
 
 ```lua
 use {
-  'your-username/nvim-pipeline', -- Replace with your actual repo path
+  'your-username/nvim-pipeline',
   config = function()
-    require('pipeline').setup()
+    require('pipeline').setup({
+      exclude_organisations = {"org1", "org2"} -- Optional: exclude specific organizations
+    })
   end,
 }
 ```
 
+## Quick Start
+
+1. **Install GitHub CLI** and authenticate:
+   ```bash
+   gh auth login
+   ```
+
+2. **Install the plugin** using one of the methods above
+
+3. **Open the pipeline**:
+   ```vim
+   :Pipeline open
+   ```
+
 ## Usage
 
-Open the GitHub Actions pipeline viewer:
+### Commands
 
-```vim
-:Pipeline open
-```
+- `:Pipeline open` - Open the GitHub Actions pipeline viewer
 
 ### Keybindings in the floating window:
 - `q` or `Esc` - Close the window
+
+## Configuration
+
+Configure the plugin by passing options to the `setup()` function:
+
+```lua
+require('pipeline').setup({
+  exclude_organisations = {"microsoft", "google"} -- Exclude repos from these organizations
+})
+```
+
+### Options
+
+#### exclude_organisations
+- **Type**: Array of strings
+- **Default**: `{}`
+- **Description**: Organizations whose repositories should be excluded from the pipeline display
+
+**Example**: If you work with many organizations but only want to monitor your company's repos:
+
+```lua
+require('pipeline').setup({
+  exclude_organisations = {"third-party-org", "personal-projects"}
+})
+```
+
+This will hide all repositories owned by the specified organizations from appearing in the pipeline view, helping you focus on the repos that matter most to you.
 
 ## Setup
 
