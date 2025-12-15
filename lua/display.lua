@@ -11,14 +11,16 @@ local config = {
 
 -- Create highlight groups
 local function setup_highlights()
-    vim.api.nvim_set_hl(0, "PipelineActiveBorder", {fg = "#f0c674"}) -- Yellow
-    vim.api.nvim_set_hl(0, "PipelineCompletedBorder", {fg = "#5c6370"}) -- Gray
-    vim.api.nvim_set_hl(0, "PipelineSuccess", {fg = "#98c379"}) -- Green
-    vim.api.nvim_set_hl(0, "PipelineFailure", {fg = "#e06c75"}) -- Red
-    vim.api.nvim_set_hl(0, "PipelineCancelled", {fg = "#abb2bf"}) -- Light gray
-    vim.api.nvim_set_hl(0, "PipelineInProgress", {fg = "#f0c674"}) -- Yellow
+    -- Use theme diagnostic colors for better consistency
+    vim.api.nvim_set_hl(0, "PipelineActiveBorder", {link = "DiagnosticWarn"}) -- Yellow
+    vim.api.nvim_set_hl(0, "PipelineCompletedBorder", {link = "Comment"}) -- Gray
+    vim.api.nvim_set_hl(0, "PipelineSuccess", {link = "DiagnosticOk"}) -- Green
+    vim.api.nvim_set_hl(0, "PipelineFailure", {link = "DiagnosticError"}) -- Red
+    vim.api.nvim_set_hl(0, "PipelineCancelled", {link = "Comment"}) -- Light gray
+    vim.api.nvim_set_hl(0, "PipelineInProgress", {link = "DiagnosticWarn"}) -- Yellow
     vim.api.nvim_set_hl(0, "PipelineNormal", {link = "Normal"}) -- Use theme background
     vim.api.nvim_set_hl(0, "PipelineFloat", {link = "NormalFloat"}) -- Use theme float background
+    vim.api.nvim_set_hl(0, "PipelineSelected", {bg = "#2c313c", reverse = true}) -- Selected box with reverse highlighting
 end
 
 -- Create a box border with corners and edges
@@ -183,12 +185,27 @@ function M.generate_display_content(active_actions, recent_actions, win_width, w
             -- Center the box horizontally
             local centered_line = string.rep(" ", center_offset) .. box_line
             lines[current_line] = centered_line
+            
+            -- Add border highlight
             table.insert(highlights, {
                 line = current_line - 1,
                 col_start = center_offset,
                 col_end = center_offset + string.len(box_line),
                 hl_group = box.border_highlight
             })
+            
+            -- Add status symbol highlighting for content lines (not borders)
+            if j >= 2 and j <= #box.lines - 1 and box_line ~= "│" .. string.rep(" ", config.box_width - 2) .. "│" then
+                -- Find status symbol position (after │ and space)
+                local status_pos = center_offset + 2
+                table.insert(highlights, {
+                    line = current_line - 1,
+                    col_start = status_pos,
+                    col_end = status_pos + 1,
+                    hl_group = action:get_status_color()
+                })
+            end
+            
             current_line = current_line + 1
         end
 
@@ -197,7 +214,9 @@ function M.generate_display_content(active_actions, recent_actions, win_width, w
             action = action,
             start_line = box_start_line,
             end_line = current_line - 1,
-            center_line = box_start_line + math.floor(config.box_height / 2)
+            center_line = box_start_line + math.floor(config.box_height / 2),
+            col_start = center_offset,
+            col_end = center_offset + string.len(box.lines[1])
         })
 
         add_lines({""}) -- Spacing between boxes
@@ -238,9 +257,9 @@ end
 
 -- Create and configure floating window
 function M.create_floating_window(content)
-    -- Make window almost full width
+    -- Make window almost full width and height
     local win_width = math.min(vim.o.columns - 8, math.max(120, vim.o.columns * 0.9))
-    local win_height = math.min(vim.o.lines - 4, math.max(20, #content.lines + 2))
+    local win_height = math.min(vim.o.lines - 4, math.max(20, vim.o.lines * 0.9))
 
     local row = math.floor((vim.o.lines - win_height) / 2)
     local col = math.floor((vim.o.columns - win_width) / 2)
@@ -273,57 +292,85 @@ function M.create_floating_window(content)
         title_pos = 'center',
     })
 
-    -- Set window options to use theme background
+    -- Set window options to use theme background and hide cursor
     vim.api.nvim_win_set_option(win, 'winhighlight', 'Normal:PipelineNormal,NormalNC:PipelineNormal')
-    vim.api.nvim_win_set_option(win, 'cursorline', true)
+    vim.api.nvim_win_set_option(win, 'cursorline', false)
     vim.api.nvim_win_set_option(win, 'wrap', false)
+    vim.api.nvim_win_set_option(win, 'cursorcolumn', false)
+    vim.api.nvim_win_set_option(win, 'guicursor', 'a:Normal/PipelineNormal')
 
     -- Box navigation state
     local current_box = 1
     local box_positions = content.box_positions or {}
 
-    -- Function to move cursor to a specific box
-    local function move_to_box(box_index)
+    -- Function to highlight a specific box
+    local function highlight_box(box_index)
         if #box_positions == 0 then return end
         
         box_index = math.max(1, math.min(box_index, #box_positions))
         current_box = box_index
         
+        -- Clear all previous selections
+        vim.api.nvim_buf_clear_namespace(buf, -1, 0, -1)
+        
+        -- Highlight selected box only within box boundaries
         local box_pos = box_positions[box_index]
-        vim.api.nvim_win_set_cursor(win, {box_pos.center_line, 0})
+        for line = box_pos.start_line, box_pos.end_line do
+            vim.api.nvim_buf_add_highlight(buf, -1, "PipelineSelected", line - 1, box_pos.col_start, box_pos.col_end)
+        end
+        
+        -- Scroll window to keep selected box visible
+        local win_height = vim.api.nvim_win_get_height(win)
+        local center_line = box_pos.center_line
+        local top_visible = vim.fn.line('w0')
+        local bottom_visible = vim.fn.line('w$')
+        
+        -- Scroll up if selection is above visible area
+        if center_line < top_visible + 2 then
+            vim.api.nvim_win_set_cursor(win, {center_line - 2, 0})
+        -- Scroll down if selection is below visible area  
+        elseif center_line > bottom_visible - 2 then
+            vim.api.nvim_win_set_cursor(win, {center_line + 2, 0})
+        end
+    end
+
+    -- Function to restore cursor on exit
+    local function restore_cursor()
+        vim.api.nvim_win_set_option(win, 'guicursor', '')  -- Reset to default
+        vim.cmd('close')
     end
 
     -- Set up box navigation keymaps
     local opts = { buffer = buf, silent = true }
     
     -- Basic navigation
-    vim.keymap.set('n', 'q', '<cmd>close<cr>', opts)
-    vim.keymap.set('n', '<Esc>', '<cmd>close<cr>', opts)
+    vim.keymap.set('n', 'q', restore_cursor, opts)
+    vim.keymap.set('n', '<Esc>', restore_cursor, opts)
     
     -- Box-based navigation
     vim.keymap.set('n', 'j', function()
-        move_to_box(current_box + 1)
+        highlight_box(current_box + 1)
     end, opts)
     
     vim.keymap.set('n', 'k', function()
-        move_to_box(current_box - 1)
+        highlight_box(current_box - 1)
     end, opts)
     
     vim.keymap.set('n', '<Down>', function()
-        move_to_box(current_box + 1)
+        highlight_box(current_box + 1)
     end, opts)
     
     vim.keymap.set('n', '<Up>', function()
-        move_to_box(current_box - 1)
+        highlight_box(current_box - 1)
     end, opts)
 
     -- Jump to first/last box
     vim.keymap.set('n', 'gg', function()
-        move_to_box(1)
+        highlight_box(1)
     end, opts)
     
     vim.keymap.set('n', 'G', function()
-        move_to_box(#box_positions)
+        highlight_box(#box_positions)
     end, opts)
 
     -- Open action URL (if available)
@@ -339,10 +386,22 @@ function M.create_floating_window(content)
         end
     end, opts)
 
-    -- Position cursor on first box if available
+    -- Highlight first box if available
     if #box_positions > 0 then
-        move_to_box(1)
+        highlight_box(1)
     end
+
+    -- Set up autocmd to restore cursor when window is closed
+    local augroup = vim.api.nvim_create_augroup("PipelineWindow", { clear = false })
+    vim.api.nvim_create_autocmd("WinClosed", {
+        group = augroup,
+        pattern = tostring(win),
+        callback = function()
+            vim.opt.guicursor = ''  -- Reset to default
+            vim.api.nvim_del_augroup_by_id(augroup)
+        end,
+        once = true
+    })
 
     return { buf = buf, win = win, box_positions = box_positions }
 end
@@ -373,9 +432,13 @@ function M.update_window_content(window_info, active_actions, recent_actions)
         vim.api.nvim_buf_add_highlight(window_info.buf, -1, hl.hl_group, hl.line, hl.col_start, hl.col_end)
     end
     
-    -- Reset cursor to first box if available
+    -- Re-highlight first box if available
     if content.box_positions and #content.box_positions > 0 then
-        vim.api.nvim_win_set_cursor(window_info.win, {content.box_positions[1].center_line, 0})
+        vim.api.nvim_buf_clear_namespace(window_info.buf, -1, 0, -1)
+        local box_pos = content.box_positions[1]
+        for line = box_pos.start_line, box_pos.end_line do
+            vim.api.nvim_buf_add_highlight(window_info.buf, -1, "PipelineSelected", line - 1, box_pos.col_start, box_pos.col_end)
+        end
     end
 end
 
