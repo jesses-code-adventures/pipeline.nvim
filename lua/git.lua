@@ -99,7 +99,7 @@ local function parse_actions_json(json_str)
         -- Use the correct field names from gh CLI
         local id = run.databaseId or run.id
         local name = run.name or run.workflowName
-        
+
         -- Validate required fields
         if id and name then
             -- Calculate duration

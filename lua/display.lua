@@ -85,7 +85,7 @@ local function format_action_content(action, width)
 	-- Line 3: workflow name (duration)
 	local workflow = action:get_display_name()
 	local duration_str = action:get_duration_string()
-	local workflow_line = string.format("%s (%s)", workflow, duration_str)
+	local workflow_line = string.format("(%s) %s", duration_str, workflow)
 	if string.len(workflow_line) > content_width then
 		workflow_line = string.sub(workflow_line, 1, content_width - 3) .. "..."
 	end
@@ -279,7 +279,7 @@ function M.create_floating_window(content)
 	local col = math.floor((vim.o.columns - win_width) / 2)
 
 	-- Store original cursor setting globally
-	vim.g.pipeline_original_guicursor = vim.opt.guicursor:get()
+	vim.g.pipeline_original_guicursor = vim.o.guicursor
 
 	-- Create buffer
 	local buf = vim.api.nvim_create_buf(false, true)
@@ -314,26 +314,28 @@ function M.create_floating_window(content)
 	vim.api.nvim_win_set_option(win, 'cursorline', false)
 	vim.api.nvim_win_set_option(win, 'wrap', false)
 	vim.api.nvim_win_set_option(win, 'cursorcolumn', false)
-	vim.opt.guicursor = 'a:Normal/PipelineNormal'
+	vim.api.nvim_set_option_value('guicursor', 'a:block', {})
 
 	-- Box navigation state
-	local current_box = 1
-	local box_positions = content.box_positions or {}
+	local window_state = {
+		current_box = 1,
+		box_positions = content.box_positions or {}
+	}
 
 	-- Function to restore original borders for all boxes
 	local function restore_all_borders()
 		vim.api.nvim_buf_set_option(buf, 'modifiable', true)
 		local current_center_offset = math.max(0, math.floor((win_width - config.box_width) / 2))
-		for i, box_pos in ipairs(box_positions) do
+		for i, box_pos in ipairs(window_state.box_positions) do
 			local action = box_pos.action
 			local box = M.render_action_box(action)
-			
+
 			for line_offset = 1, #box.lines do
 				local actual_line = box_pos.start_line + line_offset - 1
 				if actual_line <= box_pos.end_line then
 					local restored_line = string.rep(" ", current_center_offset) .. box.lines[line_offset]
 					vim.api.nvim_buf_set_lines(buf, actual_line - 1, actual_line, false, { restored_line })
-					
+
 					-- Re-apply original border highlights
 					vim.api.nvim_buf_add_highlight(buf, -1, box.border_highlight, actual_line - 1, current_center_offset,
 						current_center_offset + string.len(box.lines[line_offset]))
@@ -345,10 +347,10 @@ function M.create_floating_window(content)
 
 	-- Function to highlight a specific box
 	local function highlight_box(box_index)
-		if #box_positions == 0 then return end
+		if #window_state.box_positions == 0 then return end
 
-		box_index = math.max(1, math.min(box_index, #box_positions))
-		current_box = box_index
+		box_index = math.max(1, math.min(box_index, #window_state.box_positions))
+		window_state.current_box = box_index
 
 		-- Restore all borders first
 		restore_all_borders()
@@ -358,11 +360,11 @@ function M.create_floating_window(content)
 
 		-- Apply double-line border to selected box
 		vim.api.nvim_buf_set_option(buf, 'modifiable', true)
-		local box_pos = box_positions[box_index]
+		local box_pos = window_state.box_positions[box_index]
 		local action = box_pos.action
 		local double_border_lines = create_double_box_border(config.box_width, config.box_height)
 		local current_center_offset = math.max(0, math.floor((win_width - config.box_width) / 2))
-		
+
 		for line_offset = 1, #double_border_lines do
 			local actual_line = box_pos.start_line + line_offset - 1
 			if actual_line <= box_pos.end_line then
@@ -375,7 +377,7 @@ function M.create_floating_window(content)
 					-- Side borders with content
 					local content_lines = format_action_content(action, config.box_width)
 					local content_index = line_offset - 1
-					
+
 					if content_index <= #content_lines then
 						local content = content_lines[content_index]
 						local padded_content = content .. string.rep(" ", config.box_width - 4 - string.len(content))
@@ -384,10 +386,10 @@ function M.create_floating_window(content)
 						line_content = double_border_lines[line_offset]
 					end
 				end
-				
+
 				local full_line = string.rep(" ", current_center_offset) .. line_content
 				vim.api.nvim_buf_set_lines(buf, actual_line - 1, actual_line, false, { full_line })
-				
+
 				-- Add selection highlight for the border
 				vim.api.nvim_buf_add_highlight(buf, -1, "PipelineSelected", actual_line - 1, current_center_offset,
 					current_center_offset + config.box_width)
@@ -418,41 +420,50 @@ function M.create_floating_window(content)
 
 	local function restore_cursor()
 		-- Restore original cursor setting from global variable
-		if vim.g.pipeline_original_guicursor and #vim.g.pipeline_original_guicursor > 0 then
-			vim.opt.guicursor = vim.g.pipeline_original_guicursor
+		if vim.g.pipeline_original_guicursor and vim.g.pipeline_original_guicursor ~= '' then
+			vim.api.nvim_set_option_value('guicursor', vim.g.pipeline_original_guicursor, {})
 		else
-			vim.opt.guicursor = ''
+			vim.api.nvim_set_option_value('guicursor', '', {})
 		end
-		vim.api.nvim_win_set_option(win, 'cursorline', true)
-		vim.api.nvim_win_set_option(win, 'cursorcolumn', false)
 		-- Clear global variable
 		vim.g.pipeline_original_guicursor = nil
 		-- Clean up augroup
 		pcall(vim.api.nvim_del_augroup_by_id, augroup)
 	end
 
+	local function quit_window()
+		restore_cursor()
+		vim.cmd('close')
+	end
+
 	-- Set up box navigation keymaps
 	local opts = { buffer = buf, silent = true }
 
-	-- Basic navigation
-	vim.keymap.set('n', 'q', restore_cursor, opts)
-	vim.keymap.set('n', '<Esc>', restore_cursor, opts)
+  -- Basic navigation
+  vim.keymap.set('n', 'q', function()
+      restore_cursor()
+      vim.cmd('close')
+  end, opts)
+  vim.keymap.set('n', '<Esc>', function()
+      restore_cursor()
+      vim.cmd('close')
+  end, opts)
 
 	-- Box-based navigation
 	vim.keymap.set('n', 'j', function()
-		highlight_box(current_box + 1)
+		highlight_box(window_state.current_box + 1)
 	end, opts)
 
 	vim.keymap.set('n', 'k', function()
-		highlight_box(current_box - 1)
+		highlight_box(window_state.current_box - 1)
 	end, opts)
 
 	vim.keymap.set('n', '<Down>', function()
-		highlight_box(current_box + 1)
+		highlight_box(window_state.current_box + 1)
 	end, opts)
 
 	vim.keymap.set('n', '<Up>', function()
-		highlight_box(current_box - 1)
+		highlight_box(window_state.current_box - 1)
 	end, opts)
 
 	-- Jump to first/last box
@@ -461,13 +472,13 @@ function M.create_floating_window(content)
 	end, opts)
 
 	vim.keymap.set('n', 'G', function()
-		highlight_box(#box_positions)
+		highlight_box(#window_state.box_positions)
 	end, opts)
 
 	-- Open action URL (if available)
 	vim.keymap.set('n', '<CR>', function()
-		if #box_positions > 0 and current_box <= #box_positions then
-			local action = box_positions[current_box].action
+		if #window_state.box_positions > 0 and window_state.current_box <= #window_state.box_positions then
+			local action = window_state.box_positions[window_state.current_box].action
 			if action.html_url and action.html_url ~= "" then
 				vim.fn.system('open "' .. action.html_url .. '"')
 				vim.notify("Opened: " .. action.html_url)
@@ -478,17 +489,16 @@ function M.create_floating_window(content)
 	end, opts)
 
 	-- Highlight first box if available
-	if #box_positions > 0 then
+	if #window_state.box_positions > 0 then
 		highlight_box(1)
 	end
 
-	-- Set up multiple autocmds to ensure cursor restoration
+	-- Set up autocmd to restore cursor when window is closed
 	local augroup = vim.api.nvim_create_augroup("PipelineWindow", { clear = false })
 
-	-- Multiple triggers to ensure restoration
-	vim.api.nvim_create_autocmd({ "WinClosed", "WinLeave", "BufLeave" }, {
+	vim.api.nvim_create_autocmd("WinClosed", {
 		group = augroup,
-		buffer = buf,
+		pattern = tostring(win),
 		callback = restore_cursor,
 		once = true
 	})
@@ -502,7 +512,7 @@ function M.create_floating_window(content)
 		once = true
 	})
 
-	return { buf = buf, win = win, box_positions = box_positions }
+	return { buf = buf, win = win, box_positions = window_state.box_positions, window_state = window_state }
 end
 
 -- Update existing window with new content
@@ -531,16 +541,23 @@ function M.update_window_content(window_info, active_actions, recent_actions)
 		vim.api.nvim_buf_add_highlight(window_info.buf, -1, hl.hl_group, hl.line, hl.col_start, hl.col_end)
 	end
 
+	-- Update window state with new box positions
+	window_info.box_positions = content.box_positions or {}
+	if window_info.window_state then
+		window_info.window_state.box_positions = content.box_positions or {}
+		window_info.window_state.current_box = 1
+	end
+
 	-- Re-highlight first box if available - use the new double border method
 	if content.box_positions and #content.box_positions > 0 then
 		-- Make buffer modifiable again for double border updates
 		vim.api.nvim_buf_set_option(window_info.buf, 'modifiable', true)
-		
+
 		local current_center_offset = math.max(0, math.floor((win_width - config.box_width) / 2))
 		local action = content.box_positions[1].action
 		local double_border_lines = create_double_box_border(config.box_width, config.box_height)
 		local box_pos = content.box_positions[1]
-		
+
 		for line_offset = 1, #double_border_lines do
 			local actual_line = box_pos.start_line + line_offset - 1
 			if actual_line <= box_pos.end_line then
@@ -551,7 +568,7 @@ function M.update_window_content(window_info, active_actions, recent_actions)
 				else
 					local content_lines = format_action_content(action, config.box_width)
 					local content_index = line_offset - 1
-					
+
 					if content_index <= #content_lines then
 						local content = content_lines[content_index]
 						local padded_content = content .. string.rep(" ", config.box_width - 4 - string.len(content))
@@ -560,16 +577,16 @@ function M.update_window_content(window_info, active_actions, recent_actions)
 						line_content = double_border_lines[line_offset]
 					end
 				end
-				
+
 				local full_line = string.rep(" ", current_center_offset) .. line_content
 				vim.api.nvim_buf_set_lines(window_info.buf, actual_line - 1, actual_line, false, { full_line })
-				
+
 				-- Add selection highlight for the border
 				vim.api.nvim_buf_add_highlight(window_info.buf, -1, "PipelineSelected", actual_line - 1, current_center_offset,
 					current_center_offset + config.box_width)
 			end
 		end
-		
+
 		-- Set buffer back to not modifiable
 		vim.api.nvim_buf_set_option(window_info.buf, 'modifiable', false)
 	end
