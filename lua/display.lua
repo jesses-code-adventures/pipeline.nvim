@@ -17,6 +17,8 @@ local function setup_highlights()
     vim.api.nvim_set_hl(0, "PipelineFailure", {fg = "#e06c75"}) -- Red
     vim.api.nvim_set_hl(0, "PipelineCancelled", {fg = "#abb2bf"}) -- Light gray
     vim.api.nvim_set_hl(0, "PipelineInProgress", {fg = "#f0c674"}) -- Yellow
+    vim.api.nvim_set_hl(0, "PipelineNormal", {link = "Normal"}) -- Use theme background
+    vim.api.nvim_set_hl(0, "PipelineFloat", {link = "NormalFloat"}) -- Use theme float background
 end
 
 -- Create a box border with corners and edges
@@ -236,8 +238,8 @@ end
 
 -- Create and configure floating window
 function M.create_floating_window(content)
-    -- Make window wider to accommodate larger boxes
-    local win_width = math.min(vim.o.columns - 4, 140)
+    -- Make window almost full width
+    local win_width = math.min(vim.o.columns - 8, math.max(120, vim.o.columns * 0.9))
     local win_height = math.min(vim.o.lines - 4, math.max(20, #content.lines + 2))
 
     local row = math.floor((vim.o.lines - win_height) / 2)
@@ -271,7 +273,8 @@ function M.create_floating_window(content)
         title_pos = 'center',
     })
 
-    -- Set window options
+    -- Set window options to use theme background
+    vim.api.nvim_win_set_option(win, 'winhighlight', 'Normal:PipelineNormal,NormalNC:PipelineNormal')
     vim.api.nvim_win_set_option(win, 'cursorline', true)
     vim.api.nvim_win_set_option(win, 'wrap', false)
 
