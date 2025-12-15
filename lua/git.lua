@@ -36,7 +36,7 @@ local function execute_async(cmd, args, callback)
         stdout:close()
         stderr:close()
         handle:close()
-        
+
         -- Provide more specific error messages
         if code ~= 0 then
             local error_message = stderr_data
@@ -97,50 +97,45 @@ local function parse_actions_json(json_str)
     local actions = {}
     for _, run in ipairs(data) do
         -- Validate required fields
-        if not run.id or not run.name then
-            -- Skip invalid runs
-            goto continue
+        if run.id and run.name then
+            -- Calculate duration
+            local start_time = run.created_at or run.createdAt
+            local end_time = run.updated_at or run.updatedAt
+            local duration = 0
+
+            if start_time and end_time then
+                -- Simple duration calculation - in a real implementation you'd want proper date parsing
+                duration = math.random(30, 600) -- Placeholder: random 30-600 seconds
+            end
+
+            -- Extract current step for in-progress runs
+            local current_step = ""
+            if run.status == "in_progress" then
+                current_step = "Running workflow..." -- Placeholder - would need separate API call for jobs
+            end
+
+            -- Handle different field name formats from gh CLI
+            local head_branch = run.head_branch or run.headBranch or ""
+            local head_sha = run.head_sha or run.headSha or ""
+            local html_url = run.html_url or run.htmlUrl or ""
+
+            local action = Action.new({
+                id = tostring(run.id),
+                name = run.name or "",
+                status = run.status or "unknown",
+                conclusion = run.conclusion,
+                start_time = start_time,
+                duration = duration,
+                current_step = current_step,
+                workflow_name = run.name or "",
+                branch = head_branch,
+                commit_sha = head_sha,
+                actor = run.actor and run.actor.login or "",
+                html_url = html_url
+            })
+
+            table.insert(actions, action)
         end
-
-        -- Calculate duration
-        local start_time = run.created_at or run.createdAt
-        local end_time = run.updated_at or run.updatedAt
-        local duration = 0
-        
-        if start_time and end_time then
-            -- Simple duration calculation - in a real implementation you'd want proper date parsing
-            duration = math.random(30, 600) -- Placeholder: random 30-600 seconds
-        end
-
-        -- Extract current step for in-progress runs
-        local current_step = ""
-        if run.status == "in_progress" then
-            current_step = "Running workflow..." -- Placeholder - would need separate API call for jobs
-        end
-
-        -- Handle different field name formats from gh CLI
-        local head_branch = run.head_branch or run.headBranch or ""
-        local head_sha = run.head_sha or run.headSha or ""
-        local html_url = run.html_url or run.htmlUrl or ""
-
-        local action = Action.new({
-            id = tostring(run.id),
-            name = run.name or "",
-            status = run.status or "unknown",
-            conclusion = run.conclusion,
-            start_time = start_time,
-            duration = duration,
-            current_step = current_step,
-            workflow_name = run.name or "",
-            branch = head_branch,
-            commit_sha = head_sha,
-            actor = run.actor and run.actor.login or "",
-            html_url = html_url
-        })
-        
-        table.insert(actions, action)
-        
-        ::continue::
     end
 
     return actions, nil
@@ -194,7 +189,7 @@ end
 -- Fetch recent GitHub Actions (completed, failed, etc.)
 function M.get_recent_actions(callback, limit)
     limit = limit or 20
-    
+
     execute_async("gh", {
         "run", "list",
         "--json", "id,name,status,conclusion,createdAt,updatedAt,headBranch,headSha,actor,htmlUrl",
