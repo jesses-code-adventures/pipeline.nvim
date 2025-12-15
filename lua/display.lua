@@ -82,21 +82,21 @@ local function format_action_content(action, width)
 	-- Line 2: empty
 	lines[2] = ""
 
-	-- Line 3: workflow name (duration)
-	local workflow = action:get_display_name()
-	local duration_str = action:get_duration_string()
-	local workflow_line = string.format("(%s) %s", duration_str, workflow)
-	if string.len(workflow_line) > content_width then
-		workflow_line = string.sub(workflow_line, 1, content_width - 3) .. "..."
-	end
-	lines[3] = workflow_line
-
-	-- Line 4: status text
+	-- Line 3: status text
 	local status_text = action:get_status_text()
 	if string.len(status_text) > content_width then
 		status_text = string.sub(status_text, 1, content_width - 3) .. "..."
 	end
-	lines[4] = status_text
+	lines[3] = status_text
+
+	-- Line 4: workflow name (duration)
+	local workflow = action:get_display_name()
+	local duration_str = action:get_duration_string()
+	local workflow_line = string.format("(%s) %s", duration_str, workflow)
+	if string.len(workflow_line) > content_width then
+		workflow_line = string.sub(workflow_line, 1, content_width - 4) .. "..."
+	end
+	lines[4] = workflow_line
 
 	return lines
 end
@@ -208,13 +208,13 @@ function M.generate_display_content(active_actions, recent_actions, win_width, w
 			})
 
 			-- Add status highlighting for the status line (j=5, fourth content line)
-			if j == 5 then
+			if j == 4 then
 				local status_pos = center_offset + 2
 				local status_text = action:get_status_text()
 				table.insert(highlights, {
 					line = current_line - 1,
 					col_start = status_pos,
-					col_end = status_pos + string.len(status_text),
+					col_end = status_pos + string.len(status_text) + 1,
 					hl_group = action:get_status_color()
 				})
 			end
@@ -339,6 +339,14 @@ function M.create_floating_window(content)
 					-- Re-apply original border highlights
 					vim.api.nvim_buf_add_highlight(buf, -1, box.border_highlight, actual_line - 1, current_center_offset,
 						current_center_offset + string.len(box.lines[line_offset]))
+
+					-- Re-apply status highlighting for the status line (line_offset = 5)
+					if line_offset == 4 then
+						local status_pos = current_center_offset + 2
+						local status_text = action:get_status_text()
+						vim.api.nvim_buf_add_highlight(buf, -1, action:get_status_color(), actual_line - 1, status_pos,
+							status_pos + string.len(status_text) + 1)
+					end
 				end
 			end
 		end
@@ -355,8 +363,8 @@ function M.create_floating_window(content)
 		-- Restore all borders first
 		restore_all_borders()
 
-		-- Clear all previous selections
-		vim.api.nvim_buf_clear_namespace(buf, -1, 0, -1)
+		-- Clear only selection highlights by using a specific namespace
+		-- Don't clear all highlights, as that removes the colored borders and status text
 
 		-- Apply double-line border to selected box
 		vim.api.nvim_buf_set_option(buf, 'modifiable', true)
@@ -393,6 +401,14 @@ function M.create_floating_window(content)
 				-- Add selection highlight for the border
 				vim.api.nvim_buf_add_highlight(buf, -1, "PipelineSelected", actual_line - 1, current_center_offset,
 					current_center_offset + config.box_width)
+
+				-- Re-apply status highlighting for the status line (line_offset = 5)
+				if line_offset == 4 then
+					local status_pos = current_center_offset + 2
+					local status_text = action:get_status_text()
+					vim.api.nvim_buf_add_highlight(buf, -1, action:get_status_color(), actual_line - 1, status_pos,
+						status_pos + string.len(status_text) + 1)
+				end
 			end
 		end
 		vim.api.nvim_buf_set_option(buf, 'modifiable', false)
@@ -536,7 +552,7 @@ function M.update_window_content(window_info, active_actions, recent_actions)
 	vim.api.nvim_buf_set_lines(window_info.buf, 0, -1, false, content.lines)
 	vim.api.nvim_buf_set_option(window_info.buf, 'modifiable', false)
 
-	-- Re-apply highlights
+	-- Re-apply highlights for all boxes first
 	for _, hl in ipairs(content.highlights) do
 		vim.api.nvim_buf_add_highlight(window_info.buf, -1, hl.hl_group, hl.line, hl.col_start, hl.col_end)
 	end
@@ -548,9 +564,9 @@ function M.update_window_content(window_info, active_actions, recent_actions)
 		window_info.window_state.current_box = 1
 	end
 
-	-- Re-highlight first box if available - use the new double border method
+	-- Re-highlight first box if available - ensure proper selection without losing colors
 	if content.box_positions and #content.box_positions > 0 then
-		-- Make buffer modifiable again for double border updates
+		-- Make buffer modifiable for double border updates
 		vim.api.nvim_buf_set_option(window_info.buf, 'modifiable', true)
 
 		local current_center_offset = math.max(0, math.floor((win_width - config.box_width) / 2))
@@ -584,6 +600,14 @@ function M.update_window_content(window_info, active_actions, recent_actions)
 				-- Add selection highlight for the border
 				vim.api.nvim_buf_add_highlight(window_info.buf, -1, "PipelineSelected", actual_line - 1, current_center_offset,
 					current_center_offset + config.box_width)
+
+				-- Re-apply status highlighting for the status line (line_offset = 5)
+				if line_offset == 4 then
+					local status_pos = current_center_offset + 2
+					local status_text = action:get_status_text()
+					vim.api.nvim_buf_add_highlight(window_info.buf, -1, action:get_status_color(), actual_line - 1, status_pos,
+						status_pos + string.len(status_text) + 1)
+				end
 			end
 		end
 
