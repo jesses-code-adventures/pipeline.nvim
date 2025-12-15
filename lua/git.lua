@@ -159,61 +159,41 @@ end
 
 -- Get repositories ordered by recent activity (pushed_at)
 function M.get_recent_repos(callback)
-    -- First get user's personal repositories
+    -- Use GitHub API to get all repos the user has access to
     execute_async("gh", {
-        "repo", "list", 
-        "--json", "name,owner,pushedAt,updatedAt,isPrivate",
-        "--limit", "100"
+        "api", "/user/repos?per_page=100&type=all",
+        "--paginate"
     }, function(code, stdout, stderr)
         if code ~= 0 then
             callback(nil, "Failed to fetch repositories: " .. (stderr or "unknown error"))
             return
         end
 
-        local success, personal_repos = pcall(vim.json.decode, stdout)
-        if not success or not personal_repos then
+        local success, repos = pcall(vim.json.decode, stdout)
+        if not success or not repos then
             callback(nil, "Failed to parse repositories list")
             return
         end
 
-        -- Also get organization repositories
-        execute_async("gh", {
-            "repo", "list",
-            "--source", "member",
-            "--json", "name,owner,pushedAt,updatedAt,isPrivate",
-            "--limit", "200"
-        }, function(org_code, org_stdout, org_stderr)
-            local org_repos = {}
-            if org_code == 0 then
-                local org_success, parsed_org_repos = pcall(vim.json.decode, org_stdout)
-                if org_success and parsed_org_repos then
-                    org_repos = parsed_org_repos
-                end
-            end
+        -- Transform to expected format
+        local transformed_repos = {}
+        for _, repo in ipairs(repos) do
+            table.insert(transformed_repos, {
+                name = repo.name,
+                owner = {login = repo.owner.login},
+                pushedAt = repo.pushed_at,
+                updatedAt = repo.updated_at,
+                isPrivate = repo.private,
+                full_name = repo.full_name
+            })
+        end
 
-            -- Combine both lists
-            local all_repos = {}
-            for _, repo in ipairs(personal_repos) do
-                table.insert(all_repos, repo)
-            end
-            for _, repo in ipairs(org_repos) do
-                table.insert(all_repos, repo)
-            end
-
-            -- Add full_name field and sort by most recent activity
-            for _, repo in ipairs(all_repos) do
-                repo.full_name = string.format("%s/%s", repo.owner.login, repo.name)
-                -- Use pushedAt for sorting (most recent git activity)
-                repo.sort_date = repo.pushedAt or repo.updatedAt or ""
-            end
-
-            -- Sort repos by most recent activity first
-            table.sort(all_repos, function(a, b)
-                return (a.sort_date or "") > (b.sort_date or "")
-            end)
-
-            callback(all_repos, nil)
+        -- Sort by most recent activity
+        table.sort(transformed_repos, function(a, b)
+            return (a.pushedAt or "") > (b.pushedAt or "")
         end)
+
+        callback(transformed_repos, nil)
     end)
 end
 
