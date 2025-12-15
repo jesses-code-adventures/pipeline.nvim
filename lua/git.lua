@@ -99,7 +99,7 @@ local function parse_actions_json(json_str)
         -- Use the correct field names from gh CLI
         local id = run.databaseId or run.id
         local name = run.name or run.workflowName
-        
+
         -- Validate required fields
         if id and name then
             -- Calculate duration
@@ -160,10 +160,10 @@ end
 -- Get repositories ordered by recent activity (pushed_at)
 function M.get_recent_repos(callback)
     print("Fetching repository list...")
-    
+
     -- First get user's personal repositories
     execute_async("gh", {
-        "repo", "list", 
+        "repo", "list",
         "--json", "name,owner,pushedAt,updatedAt,isPrivate",
         "--limit", "100"
     }, function(code, stdout, stderr)
@@ -242,7 +242,7 @@ end
 function M.get_user_repo_actions(status, callback)
     -- Get list of user's repositories first
     execute_async("gh", {
-        "repo", "list", 
+        "repo", "list",
         "--json", "name,owner",
         "--limit", "100"
     }, function(code, stdout, stderr)
@@ -261,7 +261,7 @@ function M.get_user_repo_actions(status, callback)
         local all_actions = {}
         local completed_repos = 0
         local max_repos = math.min(#repos, 10)
-        
+
         if max_repos == 0 then
             callback({}, nil)
             return
@@ -270,7 +270,7 @@ function M.get_user_repo_actions(status, callback)
         for i = 1, max_repos do
             local repo = repos[i]
             local repo_name = string.format("%s/%s", repo.owner.login, repo.name)
-            
+
             execute_async("gh", {
                 "run", "list",
                 "--repo", repo_name,
@@ -279,7 +279,7 @@ function M.get_user_repo_actions(status, callback)
                 "--limit", "5"
             }, function(repo_code, repo_stdout, repo_stderr)
                 completed_repos = completed_repos + 1
-                
+
                 if repo_code == 0 then
                     local actions, err = parse_actions_json(repo_stdout)
                     if not err and actions then
@@ -290,7 +290,7 @@ function M.get_user_repo_actions(status, callback)
                         end
                     end
                 end
-                
+
                 -- Check if we've completed all repos
                 if completed_repos == max_repos then
                     callback(all_actions, nil)
@@ -337,9 +337,9 @@ function M.get_active_actions(callback)
         local all_active_actions = {}
         local completed_repos = 0
         local max_repos = math.min(#repos, 30)
-        
+
         print("Checking active actions in", max_repos, "repositories...")
-        
+
         if max_repos == 0 then
             print("No repositories found")
             callback({}, nil)
@@ -416,12 +416,12 @@ function M.get_active_actions(callback)
             local repo = repos[i]
             fetch_repo_active_actions(repo.full_name, function(repo_actions)
                 completed_repos = completed_repos + 1
-                
+
                 -- Add this repo's actions to the total
                 for _, action in ipairs(repo_actions) do
                     table.insert(all_active_actions, action)
                 end
-                
+
                 -- Check if we've completed all repos
                 if completed_repos == max_repos then
                     print("Active actions search complete! Total found:", #all_active_actions)
@@ -449,9 +449,9 @@ function M.get_recent_actions(callback, limit)
         local all_recent_actions = {}
         local completed_repos = 0
         local max_repos = math.min(#repos, 30)
-        
+
         print("Checking recent actions in", max_repos, "repositories...")
-        
+
         if max_repos == 0 then
             print("No repositories found")
             callback({}, nil)
@@ -469,7 +469,7 @@ function M.get_recent_actions(callback, limit)
                 "--limit", "20"
             }, function(code, stdout, stderr)
                 completed_repos = completed_repos + 1
-                
+
                 if code == 0 then
                     local actions, parse_err = parse_actions_json(stdout)
                     if not parse_err and actions then
@@ -491,22 +491,22 @@ function M.get_recent_actions(callback, limit)
                 else
                     print("  Failed to get actions from", repo.full_name, ":", stderr or "unknown error")
                 end
-                
+
                 -- Check if we've completed all repos
                 if completed_repos == max_repos then
                     print("Recent actions search complete! Total found:", #all_recent_actions)
-                    
+
                     -- Sort all actions by creation time (most recent first)
                     table.sort(all_recent_actions, function(a, b)
                         return (a.start_time or "") > (b.start_time or "")
                     end)
-                    
+
                     -- Limit total results
                     local limited_actions = {}
                     for i = 1, math.min(limit, #all_recent_actions) do
                         table.insert(limited_actions, all_recent_actions[i])
                     end
-                    
+
                     print("Returning", #limited_actions, "recent actions (limited from", #all_recent_actions, ")")
                     callback(limited_actions, nil)
                 end

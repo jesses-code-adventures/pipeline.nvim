@@ -4,7 +4,7 @@ Action.__index = Action
 -- Create a new Action instance
 function Action.new(data)
     local self = setmetatable({}, Action)
-    
+
     self.id = data.id or ""
     self.name = data.name or ""
     self.status = data.status or "unknown"  -- in_progress, completed, failed, cancelled
@@ -18,7 +18,7 @@ function Action.new(data)
     self.actor = data.actor or ""
     self.html_url = data.html_url or ""
     self.repository = data.repository or ""
-    
+
     return self
 end
 
@@ -32,11 +32,11 @@ function Action:get_duration_string()
     if self.duration == 0 then
         return "0s"
     end
-    
+
     local hours = math.floor(self.duration / 3600)
     local minutes = math.floor((self.duration % 3600) / 60)
     local seconds = self.duration % 60
-    
+
     if hours > 0 then
         return string.format("%dh %dm %ds", hours, minutes, seconds)
     elseif minutes > 0 then
@@ -57,7 +57,7 @@ function Action:get_status_symbol()
         cancelled = "⊘",
         skipped = "⊝"
     }
-    
+
     -- Use conclusion for completed actions, status for others
     local key = self.status == "completed" and self.conclusion or self.status
     return symbols[key] or "?"
@@ -73,7 +73,7 @@ function Action:get_status_color()
         cancelled = "Comment",           -- Gray
         skipped = "Comment"              -- Gray
     }
-    
+
     local key = self.status == "completed" and self.conclusion or self.status
     return colors[key] or "Normal"
 end
@@ -87,7 +87,7 @@ end
 function Action:get_branch_info()
     local branch_part = self.branch ~= "" and self.branch or "unknown"
     local commit_part = self.commit_sha ~= "" and string.sub(self.commit_sha, 1, 7) or ""
-    
+
     if commit_part ~= "" then
         return string.format("%s (%s)", branch_part, commit_part)
     else

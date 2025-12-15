@@ -23,18 +23,18 @@ end
 local function create_box_border(width, height, is_active)
     local lines = {}
     local border_hl = is_active and "PipelineActiveBorder" or "PipelineCompletedBorder"
-    
+
     -- Top border
     lines[1] = "┌" .. string.rep("─", width - 2) .. "┐"
-    
+
     -- Side borders
     for i = 2, height - 1 do
         lines[i] = "│" .. string.rep(" ", width - 2) .. "│"
     end
-    
+
     -- Bottom border
     lines[height] = "└" .. string.rep("─", width - 2) .. "┘"
-    
+
     return lines, border_hl
 end
 
@@ -42,7 +42,7 @@ end
 local function format_action_content(action, width)
     local content_width = width - 4 -- Account for borders and padding
     local lines = {}
-    
+
     -- Line 1: Status symbol and workflow name
     local status_symbol = action:get_status_symbol()
     local name = action:get_display_name()
@@ -50,7 +50,7 @@ local function format_action_content(action, width)
         name = string.sub(name, 1, content_width - 5) .. "..."
     end
     lines[1] = string.format(" %s %s", status_symbol, name)
-    
+
     -- Line 2: Repository (if available)
     if action.repository ~= "" then
         local repo = action.repository
@@ -61,11 +61,11 @@ local function format_action_content(action, width)
     else
         lines[2] = ""
     end
-    
+
     -- Line 3: Duration
     local duration_str = action:get_duration_string()
     lines[3] = string.format(" Duration: %s", duration_str)
-    
+
     -- Line 4: Current step (for active) or branch info (for completed)
     if action:is_active() and action.current_step ~= "" then
         local step = action.current_step
@@ -80,7 +80,7 @@ local function format_action_content(action, width)
         end
         lines[4] = string.format(" Branch: %s", branch_info)
     end
-    
+
     return lines
 end
 
@@ -88,7 +88,7 @@ end
 function M.render_action_box(action)
     local box_lines, border_hl = create_box_border(config.box_width, config.box_height, action:is_active())
     local content_lines = format_action_content(action, config.box_width)
-    
+
     -- Insert content into box
     for i, content in ipairs(content_lines) do
         if i + 1 <= #box_lines - 1 then -- Skip top and bottom border
@@ -97,7 +97,7 @@ function M.render_action_box(action)
             box_lines[line_idx] = "│" .. padded_content .. "│"
         end
     end
-    
+
     return {
         lines = box_lines,
         border_highlight = border_hl,
@@ -110,14 +110,14 @@ end
 function M.calculate_layout(active_actions, recent_actions, win_width, win_height)
     local boxes_per_row = math.floor(win_width / (config.box_width + config.margin))
     if boxes_per_row < 1 then boxes_per_row = 1 end
-    
+
     local layout = {
         boxes_per_row = boxes_per_row,
         active_section = {},
         recent_section = {},
         total_height = 0
     }
-    
+
     -- Calculate active actions layout
     if #active_actions > 0 then
         layout.active_section.start_row = 1
@@ -126,7 +126,7 @@ function M.calculate_layout(active_actions, recent_actions, win_width, win_heigh
         layout.active_section.height = 2 + (active_rows * (config.box_height + 1)) -- Title + boxes + spacing
         layout.total_height = layout.active_section.height
     end
-    
+
     -- Calculate recent actions layout
     if #recent_actions > 0 then
         layout.recent_section.start_row = layout.total_height + 2
@@ -135,19 +135,19 @@ function M.calculate_layout(active_actions, recent_actions, win_width, win_heigh
         layout.recent_section.height = 2 + (recent_rows * (config.box_height + 1)) -- Title + boxes + spacing
         layout.total_height = layout.total_height + layout.recent_section.height
     end
-    
+
     return layout
 end
 
 -- Generate all display lines and highlights
 function M.generate_display_content(active_actions, recent_actions, win_width, win_height)
     setup_highlights()
-    
+
     local layout = M.calculate_layout(active_actions, recent_actions, win_width, win_height)
     local lines = {}
     local highlights = {}
     local current_line = 1
-    
+
     -- Helper function to add lines
     local function add_lines(content_lines, hl_group)
         for _, line in ipairs(content_lines) do
@@ -163,17 +163,17 @@ function M.generate_display_content(active_actions, recent_actions, win_width, w
             current_line = current_line + 1
         end
     end
-    
+
     -- Render active actions section
     if #active_actions > 0 then
         add_lines({layout.active_section.title}, "PipelineInProgress")
         add_lines({""}) -- Spacing
-        
+
         for i, action in ipairs(active_actions) do
             local box = M.render_action_box(action)
             local row_in_section = math.floor((i - 1) / layout.boxes_per_row)
             local col_in_row = (i - 1) % layout.boxes_per_row
-            
+
             -- For simplicity, we'll render boxes vertically for now
             -- In a more sophisticated implementation, you'd position them in a grid
             for j, box_line in ipairs(box.lines) do
@@ -189,15 +189,15 @@ function M.generate_display_content(active_actions, recent_actions, win_width, w
             add_lines({""}) -- Spacing between boxes
         end
     end
-    
+
     -- Render recent actions section
     if #recent_actions > 0 then
         add_lines({layout.recent_section.title}, "Normal")
         add_lines({""}) -- Spacing
-        
+
         for i, action in ipairs(recent_actions) do
             local box = M.render_action_box(action)
-            
+
             for j, box_line in ipairs(box.lines) do
                 lines[current_line] = box_line
                 table.insert(highlights, {
@@ -211,12 +211,12 @@ function M.generate_display_content(active_actions, recent_actions, win_width, w
             add_lines({""}) -- Spacing between boxes
         end
     end
-    
+
     -- Add empty message if no actions
     if #active_actions == 0 and #recent_actions == 0 then
         add_lines({"No GitHub Actions found.", "", "Make sure you're in a repository with GitHub Actions enabled."}, "Comment")
     end
-    
+
     return {
         lines = lines,
         highlights = highlights,
@@ -228,25 +228,25 @@ end
 function M.create_floating_window(content)
     local win_width = math.min(vim.o.columns - 4, 120)
     local win_height = math.min(vim.o.lines - 4, math.max(20, #content.lines + 2))
-    
+
     local row = math.floor((vim.o.lines - win_height) / 2)
     local col = math.floor((vim.o.columns - win_width) / 2)
-    
+
     -- Create buffer
     local buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, content.lines)
-    
+
     -- Set buffer options
     vim.api.nvim_buf_set_option(buf, 'modifiable', false)
     vim.api.nvim_buf_set_option(buf, 'buftype', 'nofile')
     vim.api.nvim_buf_set_option(buf, 'swapfile', false)
     vim.api.nvim_buf_set_option(buf, 'filetype', 'pipeline')
-    
+
     -- Apply highlights
     for _, hl in ipairs(content.highlights) do
         vim.api.nvim_buf_add_highlight(buf, -1, hl.hl_group, hl.line, hl.col_start, hl.col_end)
     end
-    
+
     -- Create window
     local win = vim.api.nvim_open_win(buf, true, {
         relative = 'editor',
@@ -259,16 +259,16 @@ function M.create_floating_window(content)
         title = ' GitHub Actions Pipeline ',
         title_pos = 'center',
     })
-    
+
     -- Set window options
     vim.api.nvim_win_set_option(win, 'cursorline', true)
     vim.api.nvim_win_set_option(win, 'wrap', false)
-    
+
     -- Set up keymaps for the window
     local opts = { buffer = buf, silent = true }
     vim.keymap.set('n', 'q', '<cmd>close<cr>', opts)
     vim.keymap.set('n', '<Esc>', '<cmd>close<cr>', opts)
-    
+
     return { buf = buf, win = win }
 end
 
