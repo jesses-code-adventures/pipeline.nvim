@@ -12,6 +12,13 @@ M.config = {
 local spinner_frames = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 local current_frame = 1
 
+-- Helper function to center text
+local function center_text(text, width)
+    local text_width = vim.fn.strdisplaywidth(text)
+    local padding = math.max(0, math.floor((width - text_width) / 2))
+    return string.rep(" ", padding) .. text
+end
+
 -- Create initial loading window
 local function show_loading_window()
     local win_width = 60
@@ -22,17 +29,23 @@ local function show_loading_window()
 
     -- Create buffer
     local buf = vim.api.nvim_create_buf(false, true)
+
     local loading_lines = {
         "",
-        "           Loading GitHub Actions...           ",
+        center_text("Loading GitHub Actions...", win_width),
         "",
-        "  Fetching repositories and workflow runs...  ",
+        center_text("Fetching repositories and workflow runs...", win_width),
         "",
-        "    This may take a few seconds...      ",
+        center_text("This may take a few seconds...", win_width),
         "",
-        "           Press q to close          "
+        center_text("Press q to close", win_width)
     }
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, loading_lines)
+
+    -- Apply NormalFloat highlight to all lines for theme background
+    for i = 0, #loading_lines - 1 do
+        vim.api.nvim_buf_add_highlight(buf, -1, "NormalFloat", i, 0, -1)
+    end
 
     -- Set buffer options
     vim.api.nvim_buf_set_option(buf, 'modifiable', true)  -- Keep modifiable for spinner
@@ -40,7 +53,7 @@ local function show_loading_window()
     vim.api.nvim_buf_set_option(buf, 'swapfile', false)
     vim.api.nvim_buf_set_option(buf, 'filetype', 'pipeline')
 
-    -- Create window
+    -- Create window with theme background
     local win = vim.api.nvim_open_win(buf, true, {
         relative = 'editor',
         width = win_width,
@@ -53,14 +66,24 @@ local function show_loading_window()
         title_pos = 'center',
     })
 
+    -- Set window to use theme background
+    vim.api.nvim_win_set_option(win, 'winhighlight', 'Normal:NormalFloat,NormalNC:NormalFloat')
+
+    -- Apply NormalFloat highlight to all lines
+    for i = 0, #loading_lines - 1 do
+        vim.api.nvim_buf_add_highlight(buf, -1, "NormalFloat", i, 0, -1)
+    end
+
     -- Set up spinner animation
     local timer = vim.loop.new_timer()
     timer:start(100, 100, vim.schedule_wrap(function()
         current_frame = (current_frame % #spinner_frames) + 1
         local spinner = spinner_frames[current_frame]
 
-        -- Update the spinner line
-        vim.api.nvim_buf_set_lines(buf, 1, 2, false, {spinner .. " Loading GitHub Actions... " .. spinner})
+        -- Update the spinner line with proper centering
+        local spinner_text = spinner .. " Loading GitHub Actions... " .. spinner
+        local centered_spinner = center_text(spinner_text, win_width)
+        vim.api.nvim_buf_set_lines(buf, 1, 2, false, {centered_spinner})
     end))
 
     -- Set up keymaps
