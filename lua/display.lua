@@ -2,7 +2,7 @@ local M = {}
 
 -- Configuration for display
 local config = {
-    box_width = 40,
+    box_width = 80,  -- Doubled from 40
     box_height = 6,
     margin = 2,
     active_border_color = "DiagnosticWarn", -- Yellow border for active actions
@@ -146,11 +146,19 @@ function M.generate_display_content(active_actions, recent_actions, win_width, w
     local layout = M.calculate_layout(active_actions, recent_actions, win_width, win_height)
     local lines = {}
     local highlights = {}
+    local box_positions = {}  -- Track box positions for navigation
     local current_line = 1
 
-    -- Helper function to add lines
-    local function add_lines(content_lines, hl_group)
+    -- Calculate horizontal centering offset
+    local center_offset = math.max(0, math.floor((win_width - config.box_width) / 2))
+
+    -- Helper function to add lines with optional centering
+    local function add_lines(content_lines, hl_group, centered)
         for _, line in ipairs(content_lines) do
+            if centered then
+                local line_center_offset = math.max(0, math.floor((win_width - string.len(line)) / 2))
+                line = string.rep(" ", line_center_offset) .. line
+            end
             lines[current_line] = line
             if hl_group then
                 table.insert(highlights, {
@@ -164,69 +172,72 @@ function M.generate_display_content(active_actions, recent_actions, win_width, w
         end
     end
 
+    -- Helper function to add a centered box
+    local function add_centered_box(action, box_index)
+        local box = M.render_action_box(action)
+        local box_start_line = current_line
+
+        for j, box_line in ipairs(box.lines) do
+            -- Center the box horizontally
+            local centered_line = string.rep(" ", center_offset) .. box_line
+            lines[current_line] = centered_line
+            table.insert(highlights, {
+                line = current_line - 1,
+                col_start = center_offset,
+                col_end = center_offset + string.len(box_line),
+                hl_group = box.border_highlight
+            })
+            current_line = current_line + 1
+        end
+
+        -- Record box position for navigation
+        table.insert(box_positions, {
+            action = action,
+            start_line = box_start_line,
+            end_line = current_line - 1,
+            center_line = box_start_line + math.floor(config.box_height / 2)
+        })
+
+        add_lines({""}) -- Spacing between boxes
+    end
+
     -- Render active actions section
     if #active_actions > 0 then
-        add_lines({layout.active_section.title}, "PipelineInProgress")
+        add_lines({layout.active_section.title}, "PipelineInProgress", true)
         add_lines({""}) -- Spacing
 
         for i, action in ipairs(active_actions) do
-            local box = M.render_action_box(action)
-            local row_in_section = math.floor((i - 1) / layout.boxes_per_row)
-            local col_in_row = (i - 1) % layout.boxes_per_row
-
-            -- For simplicity, we'll render boxes vertically for now
-            -- In a more sophisticated implementation, you'd position them in a grid
-            for j, box_line in ipairs(box.lines) do
-                lines[current_line] = box_line
-                table.insert(highlights, {
-                    line = current_line - 1,
-                    col_start = 0,
-                    col_end = -1,
-                    hl_group = box.border_highlight
-                })
-                current_line = current_line + 1
-            end
-            add_lines({""}) -- Spacing between boxes
+            add_centered_box(action, i)
         end
     end
 
     -- Render recent actions section
     if #recent_actions > 0 then
-        add_lines({layout.recent_section.title}, "Normal")
+        add_lines({layout.recent_section.title}, "Normal", true)
         add_lines({""}) -- Spacing
 
         for i, action in ipairs(recent_actions) do
-            local box = M.render_action_box(action)
-
-            for j, box_line in ipairs(box.lines) do
-                lines[current_line] = box_line
-                table.insert(highlights, {
-                    line = current_line - 1,
-                    col_start = 0,
-                    col_end = -1,
-                    hl_group = box.border_highlight
-                })
-                current_line = current_line + 1
-            end
-            add_lines({""}) -- Spacing between boxes
+            add_centered_box(action, #active_actions + i)
         end
     end
 
     -- Add empty message if no actions
     if #active_actions == 0 and #recent_actions == 0 then
-        add_lines({"No GitHub Actions found.", "", "Make sure you're in a repository with GitHub Actions enabled."}, "Comment")
+        add_lines({"No GitHub Actions found.", "", "Make sure you're in a repository with GitHub Actions enabled."}, "Comment", true)
     end
 
     return {
         lines = lines,
         highlights = highlights,
-        layout = layout
+        layout = layout,
+        box_positions = box_positions
     }
 end
 
 -- Create and configure floating window
 function M.create_floating_window(content)
-    local win_width = math.min(vim.o.columns - 4, 120)
+    -- Make window wider to accommodate larger boxes
+    local win_width = math.min(vim.o.columns - 4, 140)
     local win_height = math.min(vim.o.lines - 4, math.max(20, #content.lines + 2))
 
     local row = math.floor((vim.o.lines - win_height) / 2)
@@ -264,12 +275,73 @@ function M.create_floating_window(content)
     vim.api.nvim_win_set_option(win, 'cursorline', true)
     vim.api.nvim_win_set_option(win, 'wrap', false)
 
-    -- Set up keymaps for the window
+    -- Box navigation state
+    local current_box = 1
+    local box_positions = content.box_positions or {}
+
+    -- Function to move cursor to a specific box
+    local function move_to_box(box_index)
+        if #box_positions == 0 then return end
+        
+        box_index = math.max(1, math.min(box_index, #box_positions))
+        current_box = box_index
+        
+        local box_pos = box_positions[box_index]
+        vim.api.nvim_win_set_cursor(win, {box_pos.center_line, 0})
+    end
+
+    -- Set up box navigation keymaps
     local opts = { buffer = buf, silent = true }
+    
+    -- Basic navigation
     vim.keymap.set('n', 'q', '<cmd>close<cr>', opts)
     vim.keymap.set('n', '<Esc>', '<cmd>close<cr>', opts)
+    
+    -- Box-based navigation
+    vim.keymap.set('n', 'j', function()
+        move_to_box(current_box + 1)
+    end, opts)
+    
+    vim.keymap.set('n', 'k', function()
+        move_to_box(current_box - 1)
+    end, opts)
+    
+    vim.keymap.set('n', '<Down>', function()
+        move_to_box(current_box + 1)
+    end, opts)
+    
+    vim.keymap.set('n', '<Up>', function()
+        move_to_box(current_box - 1)
+    end, opts)
 
-    return { buf = buf, win = win }
+    -- Jump to first/last box
+    vim.keymap.set('n', 'gg', function()
+        move_to_box(1)
+    end, opts)
+    
+    vim.keymap.set('n', 'G', function()
+        move_to_box(#box_positions)
+    end, opts)
+
+    -- Open action URL (if available)
+    vim.keymap.set('n', '<CR>', function()
+        if #box_positions > 0 and current_box <= #box_positions then
+            local action = box_positions[current_box].action
+            if action.html_url and action.html_url ~= "" then
+                vim.fn.system('open "' .. action.html_url .. '"')
+                vim.notify("Opened: " .. action.html_url)
+            else
+                vim.notify("No URL available for this action")
+            end
+        end
+    end, opts)
+
+    -- Position cursor on first box if available
+    if #box_positions > 0 then
+        move_to_box(1)
+    end
+
+    return { buf = buf, win = win, box_positions = box_positions }
 end
 
 return M
