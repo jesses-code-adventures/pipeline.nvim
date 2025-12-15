@@ -51,34 +51,34 @@ local function format_action_content(action, width)
     end
     lines[1] = string.format(" %s %s", status_symbol, name)
     
-    -- Line 2: Duration
-    local duration_str = action:get_duration_string()
-    lines[2] = string.format(" Duration: %s", duration_str)
+    -- Line 2: Repository (if available)
+    if action.repository ~= "" then
+        local repo = action.repository
+        if string.len(repo) > content_width then
+            repo = string.sub(repo, 1, content_width - 3) .. "..."
+        end
+        lines[2] = string.format(" Repo: %s", repo)
+    else
+        lines[2] = ""
+    end
     
-    -- Line 3: Current step (for active) or conclusion (for completed)
+    -- Line 3: Duration
+    local duration_str = action:get_duration_string()
+    lines[3] = string.format(" Duration: %s", duration_str)
+    
+    -- Line 4: Current step (for active) or branch info (for completed)
     if action:is_active() and action.current_step ~= "" then
         local step = action.current_step
         if string.len(step) > content_width then
             step = string.sub(step, 1, content_width - 3) .. "..."
         end
-        lines[3] = string.format(" %s", step)
+        lines[4] = string.format(" %s", step)
     else
         local branch_info = action:get_branch_info()
         if string.len(branch_info) > content_width then
             branch_info = string.sub(branch_info, 1, content_width - 3) .. "..."
         end
-        lines[3] = string.format(" %s", branch_info)
-    end
-    
-    -- Line 4: Actor or empty
-    if action.actor ~= "" then
-        local actor = action.actor
-        if string.len(actor) > content_width - 3 then
-            actor = string.sub(actor, 1, content_width - 6) .. "..."
-        end
-        lines[4] = string.format(" by %s", actor)
-    else
-        lines[4] = ""
+        lines[4] = string.format(" Branch: %s", branch_info)
     end
     
     return lines

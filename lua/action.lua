@@ -17,6 +17,7 @@ function Action.new(data)
     self.commit_sha = data.commit_sha or ""
     self.actor = data.actor or ""
     self.html_url = data.html_url or ""
+    self.repository = data.repository or ""
     
     return self
 end

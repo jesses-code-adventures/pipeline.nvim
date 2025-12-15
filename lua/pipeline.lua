@@ -3,9 +3,11 @@ local display = require('display')
 
 local M = {}
 
--- Show error message
+-- Show error message (deferred to avoid fast event context issues)
 local function show_error(msg)
-    vim.notify("Pipeline Error: " .. msg, vim.log.levels.ERROR)
+    vim.schedule(function()
+        vim.notify("Pipeline Error: " .. msg, vim.log.levels.ERROR)
+    end)
 end
 
 -- Show loading message
@@ -18,27 +20,29 @@ local function open_pipeline()
     show_loading()
     
     git.get_all_actions(function(results, error_msg)
-        if error_msg then
-            show_error(error_msg)
-            return
-        end
-        
-        local active_actions = results.active or {}
-        local recent_actions = results.recent or {}
-        
-        -- Generate display content
-        local win_width = math.min(vim.o.columns - 4, 120)
-        local win_height = math.min(vim.o.lines - 4, 40)
-        
-        local content = display.generate_display_content(
-            active_actions, 
-            recent_actions, 
-            win_width, 
-            win_height
-        )
-        
-        -- Create and show floating window
-        display.create_floating_window(content)
+        vim.schedule(function()
+            if error_msg then
+                vim.notify("Pipeline Error: " .. error_msg, vim.log.levels.ERROR)
+                return
+            end
+            
+            local active_actions = results.active or {}
+            local recent_actions = results.recent or {}
+            
+            -- Generate display content
+            local win_width = math.min(vim.o.columns - 4, 120)
+            local win_height = math.min(vim.o.lines - 4, 40)
+            
+            local content = display.generate_display_content(
+                active_actions, 
+                recent_actions, 
+                win_width, 
+                win_height
+            )
+            
+            -- Create and show floating window
+            display.create_floating_window(content)
+        end)
     end)
 end
 
