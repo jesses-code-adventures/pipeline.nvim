@@ -19,6 +19,21 @@ require('pipeline').setup({
 vim.keymap.set('n', '<leader>pl', ':Pipeline open<CR>')
 ```
 
+Lazy Install
+
+```lua
+    {
+        "jesses-code-adventures/pipeline.nvim",
+        config = function()
+            require("pipeline").setup({
+                exclude_organisations = {"microsoft", "google"} -- Exclude repos from these organizations
+            })
+
+            vim.keymap.set('n', '<leader>pl', ':Pipeline open<CR>')
+        end
+    },
+```
+
 ## Usage
 
 ### Commands
