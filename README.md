@@ -9,7 +9,7 @@ A Neovim plugin to display GitHub Actions in a beautiful floating window with re
 -- run `gh auth login` in your terminal to authenticate before using the plugin
  -- in your init.lua
 vim.pack.add {
-    {'jesses-code-adventures/pipeline.nvim'}
+    {'https://github.com/jesses-code-adventures/pipeline.nvim'}
 }
 require('pipeline').setup({
     exclude_organisations = {"microsoft", "google"} -- Exclude repos from these organizations
